@@ -100,6 +100,32 @@ defmodule ReqLLM.Providers.AnthropicTest do
       refute Map.has_key?(request.headers, "x-api-key")
     end
 
+    test "attach adds beta header for web_fetch server tool" do
+      {:ok, model} = ReqLLM.model("anthropic:claude-sonnet-4-5-20250929")
+
+      request =
+        Req.new()
+        |> Anthropic.attach(model, provider_options: [web_fetch: %{max_uses: 1}])
+
+      assert request.headers["anthropic-beta"] == ["tools-2024-05-16"]
+    end
+
+    test "attach_stream adds beta header for web_fetch server tool" do
+      {:ok, model} = ReqLLM.model("anthropic:claude-sonnet-4-5-20250929")
+      context = ReqLLM.Context.new([ReqLLM.Context.user("Fetch example.com")])
+
+      {:ok, finch_request} =
+        Anthropic.attach_stream(
+          model,
+          context,
+          [api_key: "anthropic-test-key", provider_options: [web_fetch: %{max_uses: 1}]],
+          nil
+        )
+
+      headers = Map.new(finch_request.headers)
+      assert headers["anthropic-beta"] == "tools-2024-05-16"
+    end
+
     test "error handling for invalid configurations" do
       {:ok, model} = ReqLLM.model("anthropic:claude-sonnet-4-5-20250929")
       prompt = "Hello world"
@@ -634,6 +660,22 @@ defmodule ReqLLM.Providers.AnthropicTest do
       {:ok, usage} = Anthropic.extract_usage(body_with_usage, model)
       assert usage["input_tokens"] == 10
       assert usage["output_tokens"] == 20
+    end
+
+    test "extract_usage includes web_fetch tool usage" do
+      {:ok, model} = ReqLLM.model("anthropic:claude-sonnet-4-5-20250929")
+
+      body_with_usage = %{
+        "usage" => %{
+          "input_tokens" => 10,
+          "output_tokens" => 20,
+          "server_tool_use" => %{"web_fetch_requests" => 2}
+        }
+      }
+
+      {:ok, usage} = Anthropic.extract_usage(body_with_usage, model)
+      assert usage[:tool_usage][:web_fetch][:count] == 2
+      assert usage[:tool_usage][:web_fetch][:unit] == :call
     end
 
     test "extract_usage with missing usage data" do

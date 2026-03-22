@@ -371,11 +371,13 @@ defmodule ReqLLM.Providers.Anthropic do
       Map.get(server_tool_use, "web_search_requests") ||
         Map.get(server_tool_use, :web_search_requests)
 
-    if is_number(web_search) and web_search > 0 do
-      Map.put(usage, :tool_usage, ReqLLM.Usage.Tool.build(:web_search, web_search))
-    else
-      usage
-    end
+    web_fetch =
+      Map.get(server_tool_use, "web_fetch_requests") ||
+        Map.get(server_tool_use, :web_fetch_requests)
+
+    usage
+    |> maybe_put_tool_usage(:web_search, web_search)
+    |> maybe_put_tool_usage(:web_fetch, web_fetch)
   end
 
   defp maybe_add_anthropic_tool_usage(usage), do: usage
@@ -613,8 +615,15 @@ defmodule ReqLLM.Providers.Anthropic do
   end
 
   defp has_tools?(user_opts) do
+    provider_opts = Keyword.get(user_opts, :provider_options, [])
     tools = Keyword.get(user_opts, :tools, [])
-    is_list(tools) and tools != []
+
+    server_tools? =
+      Enum.any?([:web_search, :web_fetch], fn key ->
+        is_map(get_option(user_opts, key) || get_option(provider_opts, key))
+      end)
+
+    (is_list(tools) and tools != []) or server_tools?
   end
 
   defp has_thinking?(user_opts) do
@@ -959,6 +968,14 @@ defmodule ReqLLM.Providers.Anthropic do
 
   defp maybe_put_server_tool_opt(tool, _key, nil), do: tool
   defp maybe_put_server_tool_opt(tool, key, value), do: Map.put(tool, key, value)
+
+  defp maybe_put_tool_usage(usage, tool, count) when is_number(count) and count > 0 do
+    tool_usage = Map.get(usage, :tool_usage) || Map.get(usage, "tool_usage") || %{}
+    updated_tool_usage = Map.merge(tool_usage, ReqLLM.Usage.Tool.build(tool, count))
+    Map.put(usage, :tool_usage, updated_tool_usage)
+  end
+
+  defp maybe_put_tool_usage(usage, _tool, _count), do: usage
 
   @doc """
   Maps reasoning effort levels to token budgets.
